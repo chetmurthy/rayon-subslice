@@ -99,3 +99,41 @@ impl<'idxs, 'data, T: Send> IndexedParallelIterator for SubSlices<'idxs, 'data, 
         callback.callback(self)
     }
 }
+
+#[derive(Debug)]
+pub struct SplitState<'idxs, 'data, T> {
+    pub idxs: &'idxs [usize],
+    pub data: &'data mut [T],
+}
+
+impl<'idxs, 'data, T> Iterator for SplitState<'idxs, 'data, T> {
+    type Item = &'data mut [T];
+    
+    fn next(&mut self) -> Option<&'data mut [T]> {
+        match *self.idxs {
+            [chunk_start, chunk_end, ..] => {
+                let (chunk, tail) = mem::take(&mut self.data).split_at_mut(chunk_end - chunk_start);
+
+                self.idxs = &self.idxs[1..];
+                self.data = tail;
+
+                Some(chunk)
+            }
+            _ => None,
+        }
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.idxs.len() - 1;
+        (len, Some(len))
+    }
+}
+
+pub fn split_slice_mut<'idxs, 'data, T>(
+    idxs: &'idxs [usize],
+    data: &'data mut [T],
+) -> Result<Vec<&'data mut[T]>, &'static str> {
+    let sst = SplitState { idxs, data } ; 
+    let rv : Vec<&'data mut[T]> = sst.collect() ;
+    Ok(rv)
+}
