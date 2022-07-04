@@ -146,9 +146,7 @@ pub fn concat_slices<T : Copy + Zero>(slices : &[&[T]]) -> Vec<T> {
 	.sum() ;
 
     let mut rv : Vec<T> = Vec::with_capacity(full_length) ;
-    unsafe {
-	rv.set_len(full_length) ;
-    } ;
+    rv.resize(full_length, T::zero()) ;
 
     let mut idxs = Vec::with_capacity(slices.len() + 1) ;
     let last = slices.iter()
