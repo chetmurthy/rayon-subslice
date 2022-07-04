@@ -1,3 +1,4 @@
+use num::traits::Zero ;
 use rayon::iter::plumbing;
 use rayon::iter::{ParallelIterator, IndexedParallelIterator};
 
@@ -132,8 +133,83 @@ impl<'idxs, 'data, T> Iterator for SplitState<'idxs, 'data, T> {
 pub fn split_slice_mut<'idxs, 'data, T>(
     idxs: &'idxs [usize],
     data: &'data mut [T],
-) -> Result<Vec<&'data mut[T]>, &'static str> {
+) -> Vec<&'data mut[T]> {
     let sst = SplitState { idxs, data } ; 
     let rv : Vec<&'data mut[T]> = sst.collect() ;
-    Ok(rv)
+    rv
+}
+
+pub fn concat_slices<T : Copy + Zero>(slices : &[&[T]]) -> Vec<T> {
+    let full_length : usize =
+	slices.iter()
+	.map(|s| s.len())
+	.sum() ;
+
+    let mut rv : Vec<T> = Vec::with_capacity(full_length) ;
+    unsafe {
+	rv.set_len(full_length) ;
+    } ;
+
+    let mut idxs = Vec::with_capacity(slices.len() + 1) ;
+    let last = slices.iter()
+	.fold(0, |sofar,s| {
+	    idxs.push(sofar) ;
+	    sofar + s.len()
+	}) ;
+    assert!(last == full_length) ;
+    idxs.push(last) ;
+
+    let mut chunks = split_slice_mut(&idxs[..], &mut rv[..]) ;
+    assert!(idxs.len() == chunks.len() + 1) ;
+    assert! (slices.iter()
+	     .zip(chunks.iter())
+	     .all(|(s,c)| s.len() == c.len())) ;
+
+    slices.iter()
+	.zip(chunks.iter_mut())
+	.for_each(|(s,c)| {
+	    c.copy_from_slice(s) ;
+	}) ;
+
+    rv
+}
+
+#[cfg(test)]
+mod tests {
+    use rayon::prelude::*;
+    use crate::concat_slices;
+    use crate::SplitState;
+    use crate::SubSlices;
+
+    #[test]
+    fn test1() {
+	let rv = concat_slices(&[ &"abc".chars().map(|c| c as u8).collect::<Vec<_>>()[..] ][..]) ;
+	let rv = rv.iter().map(|c| *c as char).collect::<String>() ;
+	assert_eq! (rv, "abc") ;
+    }
+
+    #[test]
+    fn test2() {
+	let mut data = "abc1234XY".chars().collect::<Vec<_>>();
+	let idxs = [0, 3, 4, 7, 9];
+	
+	// Note: not using .collect() method syntax to make sure
+	// we're actually using parallel, not regular, iterator :)
+	let sst = SplitState {
+	    idxs: &idxs,
+	    data: &mut data,
+        } ;
+	let chunks: Vec<_> = sst.collect();
+	dbg!(chunks);
+    }
+
+    #[test]
+    fn test3() {
+	let s = "abc1234XY" ;
+	let mut data = s.chars().map(|c| c as u8).collect::<Vec<_>>();
+	let rv = concat_slices(&[ &data[0..3], &data[3..4], &data[4..7], &data[7..9] ][..]) ;
+	let rv = rv.iter().map(|c| *c as char).collect::<String>() ;
+	assert_eq!(s, rv) ;
+    }
+
 }
