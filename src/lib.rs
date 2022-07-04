@@ -1,4 +1,5 @@
 use num::traits::Zero ;
+use rayon::prelude::* ;
 use rayon::iter::plumbing;
 use rayon::iter::{ParallelIterator, IndexedParallelIterator};
 
@@ -102,23 +103,26 @@ impl<'idxs, 'data, T: Send> IndexedParallelIterator for SubSlices<'idxs, 'data, 
 }
 
 #[derive(Debug)]
-pub struct SplitState<'idxs, 'data, T> {
+pub struct SplitState<'idxs, 'data, 'slices, 'slices2, T> {
     pub idxs: &'idxs [usize],
+    pub slices: &'slices [&'slices2 [T]],
     pub data: &'data mut [T],
 }
 
-impl<'idxs, 'data, T> Iterator for SplitState<'idxs, 'data, T> {
-    type Item = &'data mut [T];
+impl<'idxs, 'data, 'slices, 'slices2, T> Iterator for SplitState<'idxs, 'data, 'slices, 'slices2, T> {
+    type Item = (&'data mut [T], &'slices2 [T]);
     
-    fn next(&mut self) -> Option<&'data mut [T]> {
+    fn next(&mut self) -> Option<(&'data mut [T], &'slices2 [T])> {
         match *self.idxs {
             [chunk_start, chunk_end, ..] => {
                 let (chunk, tail) = mem::take(&mut self.data).split_at_mut(chunk_end - chunk_start);
+		let (slicehd,  slicetail) = mem::take(&mut self.slices).split_at(1) ;
 
                 self.idxs = &self.idxs[1..];
+		self.slices = slicetail ;
                 self.data = tail;
 
-                Some(chunk)
+                Some((chunk, slicehd[0]))
             }
             _ => None,
         }
@@ -130,16 +134,21 @@ impl<'idxs, 'data, T> Iterator for SplitState<'idxs, 'data, T> {
     }
 }
 
-pub fn split_slice_mut<'idxs, 'data, T>(
+pub fn split_slice_mut<'idxs, 'data, 'slices, 'slices2, T>(
     idxs: &'idxs [usize],
+    slices: &'slices [&'slices2 [T]],
     data: &'data mut [T],
-) -> Vec<&'data mut[T]> {
-    let sst = SplitState { idxs, data } ; 
-    let rv : Vec<&'data mut[T]> = sst.collect() ;
+) -> Vec<(&'data mut[T], &'slices2 [T])> {
+    let sst = SplitState { idxs, data, slices } ; 
+    let rv : Vec<(&'data mut[T], &'slices2 [T])> = sst.collect() ;
     rv
 }
 
-pub fn concat_slices<T : Copy + Zero>(slices : &[&[T]]) -> Vec<T> {
+pub fn concat_slices<T>(slices : &[&[T]]) -> Vec<T>
+where
+    T : Copy + Zero + Sync,
+for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
+ {
     let full_length : usize =
 	slices.iter()
 	.map(|s| s.len())
@@ -157,18 +166,14 @@ pub fn concat_slices<T : Copy + Zero>(slices : &[&[T]]) -> Vec<T> {
     assert!(last == full_length) ;
     idxs.push(last) ;
 
-    let mut chunks = split_slice_mut(&idxs[..], &mut rv[..]) ;
+    let mut chunks : Vec<(&mut[T], &[T])> = split_slice_mut(&idxs[..], slices, &mut rv[..]) ;
+    assert!(chunks.iter().all(|(c,s)| c.len() == s.len())) ;
     assert!(idxs.len() == chunks.len() + 1) ;
-    assert! (slices.iter()
-	     .zip(chunks.iter())
-	     .all(|(s,c)| s.len() == c.len())) ;
 
-    slices.iter()
-	.zip(chunks.iter_mut())
-	.for_each(|(s,c)| {
+    chunks.par_iter_mut()
+	.for_each(|(c,s)| {
 	    c.copy_from_slice(s) ;
 	}) ;
-
     rv
 }
 
@@ -184,21 +189,6 @@ mod tests {
 	let rv = concat_slices(&[ &"abc".chars().map(|c| c as u8).collect::<Vec<_>>()[..] ][..]) ;
 	let rv = rv.iter().map(|c| *c as char).collect::<String>() ;
 	assert_eq! (rv, "abc") ;
-    }
-
-    #[test]
-    fn test2() {
-	let mut data = "abc1234XY".chars().collect::<Vec<_>>();
-	let idxs = [0, 3, 4, 7, 9];
-	
-	// Note: not using .collect() method syntax to make sure
-	// we're actually using parallel, not regular, iterator :)
-	let sst = SplitState {
-	    idxs: &idxs,
-	    data: &mut data,
-        } ;
-	let chunks: Vec<_> = sst.collect();
-	dbg!(chunks);
     }
 
     #[test]
