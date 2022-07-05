@@ -170,6 +170,105 @@ for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
     assert!(chunks.iter().all(|(c,s)| c.len() == s.len())) ;
     assert!(idxs.len() == chunks.len() + 1) ;
 
+    chunks.iter_mut()
+	.for_each(|(c,s)| {
+	    c.copy_from_slice(s) ;
+	}) ;
+    rv
+}
+
+pub fn unsafe_concat_slices<T>(slices : &[&[T]]) -> Vec<T>
+where
+    T : Copy + Zero + Sync,
+for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
+ {
+    let full_length : usize =
+	slices.iter()
+	.map(|s| s.len())
+	.sum() ;
+
+    let mut rv : Vec<T> = Vec::with_capacity(full_length) ;
+    unsafe { rv.set_len(full_length) ; }
+
+    let mut idxs = Vec::with_capacity(slices.len() + 1) ;
+    let last = slices.iter()
+	.fold(0, |sofar,s| {
+	    idxs.push(sofar) ;
+	    sofar + s.len()
+	}) ;
+    assert!(last == full_length) ;
+    idxs.push(last) ;
+
+    let mut chunks : Vec<(&mut[T], &[T])> = split_slice_mut(&idxs[..], slices, &mut rv[..]) ;
+    assert!(chunks.iter().all(|(c,s)| c.len() == s.len())) ;
+    assert!(idxs.len() == chunks.len() + 1) ;
+
+    chunks.iter_mut()
+	.for_each(|(c,s)| {
+	    c.copy_from_slice(s) ;
+	}) ;
+    rv
+}
+
+pub fn par_concat_slices<T>(slices : &[&[T]]) -> Vec<T>
+where
+    T : Copy + Zero + Sync,
+for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
+ {
+    let full_length : usize =
+	slices.iter()
+	.map(|s| s.len())
+	.sum() ;
+
+    let mut rv : Vec<T> = Vec::with_capacity(full_length) ;
+    rv.resize(full_length, T::zero()) ;
+
+    let mut idxs = Vec::with_capacity(slices.len() + 1) ;
+    let last = slices.iter()
+	.fold(0, |sofar,s| {
+	    idxs.push(sofar) ;
+	    sofar + s.len()
+	}) ;
+    assert!(last == full_length) ;
+    idxs.push(last) ;
+
+    let mut chunks : Vec<(&mut[T], &[T])> = split_slice_mut(&idxs[..], slices, &mut rv[..]) ;
+    assert!(chunks.iter().all(|(c,s)| c.len() == s.len())) ;
+    assert!(idxs.len() == chunks.len() + 1) ;
+
+    chunks.par_iter_mut()
+	.for_each(|(c,s)| {
+	    c.copy_from_slice(s) ;
+	}) ;
+    rv
+}
+
+pub fn unsafe_par_concat_slices<T>(slices : &[&[T]]) -> Vec<T>
+where
+    T : Copy + Zero + Sync,
+for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
+ {
+    let full_length : usize =
+	slices.iter()
+	.map(|s| s.len())
+	.sum() ;
+
+    let mut rv : Vec<T> = Vec::with_capacity(full_length) ;
+    unsafe { rv.set_len(full_length) ; }
+
+    let mut idxs = Vec::with_capacity(slices.len() + 1) ;
+    let last = slices.iter()
+	.fold(0, |sofar,s| {
+	    idxs.push(sofar) ;
+	    sofar + s.len()
+	}) ;
+    assert!(last == full_length) ;
+    idxs.push(last) ;
+
+    let mut chunks : Vec<(&mut[T], &[T])> = split_slice_mut(&idxs[..], slices, &mut rv[..]) ;
+    assert!(chunks.iter().all(|(c,s)| c.len() == s.len())) ;
+    assert!(idxs.len() == chunks.len() + 1) ;
+
     chunks.par_iter_mut()
 	.for_each(|(c,s)| {
 	    c.copy_from_slice(s) ;
