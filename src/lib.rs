@@ -279,7 +279,7 @@ for<'a, 'b> (&'a mut [T], &'b [T]) : Sync + Send
 #[cfg(test)]
 mod tests {
     use rayon::prelude::*;
-    use crate::concat_slices;
+    use crate::{concat_slices, par_concat_slices};
     use crate::SplitState;
     use crate::SubSlices;
 
@@ -295,6 +295,15 @@ mod tests {
 	let s = "abc1234XY" ;
 	let mut data = s.chars().map(|c| c as u8).collect::<Vec<_>>();
 	let rv = concat_slices(&[ &data[0..3], &data[3..4], &data[4..7], &data[7..9] ][..]) ;
+	let rv = rv.iter().map(|c| *c as char).collect::<String>() ;
+	assert_eq!(s, rv) ;
+    }
+
+    #[test]
+    fn test4() {
+	let s = "abc1234XY" ;
+	let mut data = s.chars().map(|c| c as u8).collect::<Vec<_>>();
+	let rv = par_concat_slices(&[ &data[0..3], &data[3..4], &data[4..7], &data[7..9] ][..]) ;
 	let rv = rv.iter().map(|c| *c as char).collect::<String>() ;
 	assert_eq!(s, rv) ;
     }
